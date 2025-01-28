@@ -2,281 +2,169 @@ package com.catalis.common.core.filters;
 
 import com.catalis.common.core.queries.PaginationRequest;
 import com.catalis.common.core.queries.PaginationResponse;
+import com.catalis.common.core.queries.PaginationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.annotation.Id;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.relational.core.query.Criteria;
 import org.springframework.data.relational.core.query.Query;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.util.function.Tuple2;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-/**
- * FilterUtils is a utility class designed to support filtering and pagination of database records
- * using Spring R2DBC. It provides a generic mechanism to dynamically query records using custom filters,
- * range filters, and pagination settings, while efficiently returning the results in a paginated response format.
- * <p>
- * Features:
- * - Dynamic filtering based on regular and range filters
- * - Special handling for ID fields:
- *   - Uses exact matching for all ID fields
- *   - Skips range filtering for ID fields (even if marked with @FilterableId)
- *   - Supports @FilterableId annotation to include specific ID fields in filtering
- * - Pagination and sorting support
- * - Uses Spring's reactive R2DBC to fetch data asynchronously
- * - Convert database entity results into custom DTOs using a mapper function
- * <p>
- * ID Field Handling:
- * - Fields with @Id annotation are always treated as ID fields
- * - Fields ending with "Id" are treated as ID fields
- * - Fields named exactly "id" are treated as ID fields
- * - By default, ID fields are excluded from filtering
- * - Adding @FilterableId to an ID field includes it in filtering with exact matching
- * - Range filtering is never applied to ID fields, even with @FilterableId
- */
 @Slf4j
 public class FilterUtils {
-    /** Static instance of R2dbcEntityTemplate used for database operations */
     private static R2dbcEntityTemplate entityTemplate;
 
-    /**
-     * Initializes the static R2dbcEntityTemplate instance.
-     * This method should be called during application startup.
-     *
-     * @param template The R2dbcEntityTemplate to be used for database operations
-     */
+    // Initializes the static R2dbcEntityTemplate instance
     public static void initializeTemplate(R2dbcEntityTemplate template) {
         entityTemplate = template;
     }
 
-    /**
-     * Creates and returns a new GenericFilter instance for the specified entity and DTO types.
-     *
-     * @param entityClass The class of the entity to be queried
-     * @param mapper Function to convert from entity to DTO
-     * @return A new GenericFilter instance
-     * @throws IllegalStateException if the entityTemplate hasn't been initialized
-     */
+    // Creates a new GenericFilter object for handling entity filtering
     public static <F, E, D> GenericFilter<F, E, D> createFilter(Class<E> entityClass, Function<E, D> mapper) {
+        // Ensures the R2dbcEntityTemplate has been initialized before use
         if (entityTemplate == null) {
             throw new IllegalStateException("R2dbcEntityTemplate not initialized. Call FilterUtils.initializeTemplate first.");
         }
         return new GenericFilter<>(entityClass, mapper);
     }
 
-    /**
-     * GenericFilter class that handles the actual filtering, pagination, and mapping operations.
-     * This inner class maintains the entity class and mapping function information.
-     */
+    // Generic filter class for handling filtering for a specified entity type
     public static class GenericFilter<F, E, D> {
-        private final Class<E> entityClass;
-        private final Function<E, D> mapper;
+        private final Class<E> entityClass; // The entity class type
+        private final Function<E, D> mapper; // Mapper to transform entity to another type
 
-        /**
-         * Constructs a new GenericFilter with the specified entity class and mapper function.
-         */
+        // Constructs the filter with entity class and mapper function
         private GenericFilter(Class<E> entityClass, Function<E, D> mapper) {
             this.entityClass = entityClass;
             this.mapper = mapper;
         }
 
-        /**
-         * Main filtering method that processes the filter request and returns paginated results.
-         * This method orchestrates the entire filtering process:
-         * 1. Builds criteria from regular and range filters
-         * 2. Creates a query with the criteria and pagination settings
-         * 3. Executes the query and counts total matching elements
-         * 4. Maps the results to DTOs and creates a paginated response
-         *
-         * @param filterRequest The filter request containing criteria and pagination settings
-         * @return A Mono containing the paginated response with mapped DTOs
-         */
+        // Main filtering method to handle filter requests
         public Mono<PaginationResponse<D>> filter(FilterRequest<?> filterRequest) {
-            Criteria criteria = buildCriteria(filterRequest);
-            Query query = createQuery(criteria, filterRequest.getPagination());
+            Criteria criteria = buildCriteria(filterRequest); // Build Criteria from the filter request
 
-            return Mono.zip(
-                    fetchAndMapPagedData(query),
-                    countTotalElements(criteria)
-            ).map(tuple -> createPaginationResponse(tuple, filterRequest.getPagination()));
+            log.info("pagination request is {}", filterRequest.getPagination());
+            // Use default pagination if no pagination provided in request
+            PaginationRequest paginationRequest = filterRequest.getPagination() != null ?
+                    filterRequest.getPagination() :
+                    new PaginationRequest();
+
+            // Leverage PaginationUtils to handle query paging and mapping
+            return PaginationUtils.paginateQuery(
+                    paginationRequest,
+                    mapper,
+                    pageable -> fetchPagedData(criteria, pageable), // Fetch data for the current page
+                    () -> countTotalElements(criteria) // Count the total number of elements
+            );
         }
 
-        /**
-         * Fetches and maps the paginated data based on the provided query.
-         * The query includes both filtering criteria and pagination/sorting settings.
-         */
-        private Mono<List<D>> fetchAndMapPagedData(Query query) {
+        // Fetches paged data based on provided criteria and pagination details
+        private Flux<E> fetchPagedData(Criteria criteria, Pageable pageable) {
+            Query query = Query.query(criteria)
+                    .with(pageable); // Build the query with pagination
+
             return entityTemplate.select(entityClass)
-                    .matching(query)
-                    .all()
-                    .map(mapper)
-                    .collectList();
+                    .matching(query) // Execute the query
+                    .all(); // Return all matching results
         }
 
-        /**
-         * Counts the total number of elements matching the filter criteria.
-         * This is used to calculate pagination metadata.
-         */
+        // Counts the total number of elements matching the criteria
         private Mono<Long> countTotalElements(Criteria criteria) {
             return entityTemplate.select(entityClass)
-                    .matching(Query.query(criteria))
-                    .count();
+                    .matching(Query.query(criteria)) // Execute a count query on the criteria
+                    .count(); // Return the count
         }
 
-        /**
-         * Creates a PaginationResponse object containing the fetched data and pagination metadata.
-         * The response includes:
-         * - The content (list of mapped DTOs)
-         * - Total number of elements matching the criteria
-         * - Total number of pages
-         * - Current page number
-         */
-        private PaginationResponse<D> createPaginationResponse(
-                Tuple2<List<D>, Long> tuple,
-                PaginationRequest pagination) {
-            List<D> content = tuple.getT1();
-            long totalElements = tuple.getT2();
-            int totalPages = calculateTotalPages(totalElements, pagination.getPageSize());
-
-            return PaginationResponse.<D>builder()
-                    .content(content)
-                    .totalElements(totalElements)
-                    .totalPages(totalPages)
-                    .currentPage(pagination.getPageNumber())
-                    .build();
-        }
-
-        /**
-         * Calculates the total number of pages based on total elements and page size.
-         * Handles the case where page size is 0 to avoid division by zero.
-         */
-        private int calculateTotalPages(long totalElements, int pageSize) {
-            return pageSize > 0 ? (int) Math.ceil((double) totalElements / pageSize) : 0;
-        }
-
-        /**
-         * Creates a Query object with filtering criteria, pagination, and sorting settings.
-         * The query combines:
-         * - The filtering criteria
-         * - Sort settings (if specified)
-         * - Pagination settings (limit and offset)
-         */
-        private Query createQuery(Criteria criteria, PaginationRequest pagination) {
-            Query query = Query.query(criteria);
-
-            if (pagination != null) {
-                // Apply sorting if sortBy field is specified
-                if (pagination.getSortBy() != null && !pagination.getSortBy().isEmpty()) {
-                    Sort sort = Sort.by(
-                            Sort.Direction.fromString(pagination.getSortDirection()),
-                            pagination.getSortBy()
-                    );
-                    query = query.sort(sort);
-                }
-
-                // Apply pagination
-                query = query.limit(pagination.getPageSize())
-                        .offset((long) pagination.getPageNumber() * pagination.getPageSize());
-            }
-
-            return query;
-        }
-
-        /**
-         * Builds the complete filtering criteria from both regular and range filters.
-         * Combines criteria from:
-         * - Regular filters (exact matches for IDs, LIKE for strings, etc.)
-         * - Range filters (for numeric and date fields, excluding ID fields)
-         */
+        // Builds a Criteria object based on the filters and range filters from the request
         private Criteria buildCriteria(FilterRequest<?> filterRequest) {
             List<Criteria> criteriaList = new ArrayList<>();
 
+            // Process regular filters if present
             if (filterRequest.getFilters() != null) {
                 criteriaList.addAll(processRegularFilters(filterRequest.getFilters()));
             }
 
+            // Process range filters if present
             if (filterRequest.getRangeFilters() != null) {
                 criteriaList.addAll(processRangeFilters(filterRequest.getRangeFilters()));
             }
 
+            // Combine all criteria into a single Criteria or return empty if no filters
             return criteriaList.isEmpty() ?
                     Criteria.empty() :
                     Criteria.from(criteriaList);
         }
 
-        /**
-         * Processes regular (non-range) filters and converts them to criteria.
-         * Handles different field types and special cases:
-         * - ID fields (with or without @FilterableId): Use exact matching
-         * - String fields: Use LIKE operator for partial matching
-         * - Other fields: Use exact matching
-         */
+        // Processes regular filters into a list of Criteria objects
         private List<Criteria> processRegularFilters(Object filters) {
             List<Criteria> criteriaList = new ArrayList<>();
-            Field[] fields = filters.getClass().getDeclaredFields();
+            Field[] fields = filters.getClass().getDeclaredFields(); // Get all declared fields of the filter class
 
             for (Field field : fields) {
-                field.setAccessible(true);
+                field.setAccessible(true); // Make field accessible for reflection
                 try {
-                    Object value = field.get(filters);
-                    if (value != null) {
-                        // Check if field should be excluded
+                    Object value = field.get(filters); // Get the value of the field
+                    if (value != null) { // Process only non-null values
+                        // Skip excluded ID fields
                         if (isExcludableIdField(field)) {
                             continue;
                         }
 
-                        // All ID fields use exact matching
+                        // Exact match for ID fields
                         if (isAnyIdField(field)) {
                             criteriaList.add(Criteria.where(field.getName()).is(value));
                         }
-                        // For non-ID fields, use appropriate matching
+                        // Perform LIKE query for non-empty String fields
                         else if (value instanceof String && !((String) value).isEmpty()) {
                             criteriaList.add(Criteria.where(field.getName()).like("%" + value + "%"));
-                        } else if (!(value instanceof String)) {
+                        }
+                        // Exact match for other types of fields
+                        else if (!(value instanceof String)) {
                             criteriaList.add(Criteria.where(field.getName()).is(value));
                         }
                     }
                 } catch (IllegalAccessException e) {
-                    log.error("Error accessing field: {}", field.getName(), e);
+                    log.error("Error accessing field: {}", field.getName(), e); // Log error for inaccessible fields
                 }
             }
 
             return criteriaList;
         }
 
-        /**
-         * Processes range filters and converts them to criteria.
-         * Range filters are applied only to non-ID fields and can include:
-         * - Between: When both 'from' and 'to' values are provided
-         * - Greater than or equal: When only 'from' value is provided
-         * - Less than or equal: When only 'to' value is provided
-         */
+        // Processes range filters into a list of Criteria objects
         private List<Criteria> processRangeFilters(RangeFilter rangeFilters) {
             List<Criteria> criteriaList = new ArrayList<>();
 
             rangeFilters.getRanges().forEach((fieldName, range) -> {
-                // Skip range filters for any ID field
+                // Skip ID fields for range filters
                 if (isAnyIdField(fieldName, entityClass)) {
                     log.debug("Skipping range filter for ID field: {}", fieldName);
                     return;
                 }
 
+                // Add BETWEEN criteria if both bounds are present
                 if (range.getFrom() != null && range.getTo() != null) {
                     criteriaList.add(
                             Criteria.where(fieldName)
                                     .between(range.getFrom(), range.getTo())
                     );
-                } else if (range.getFrom() != null) {
+                }
+                // Add GREATER-THAN-OR-EQUAL criteria if only the lower bound is present
+                else if (range.getFrom() != null) {
                     criteriaList.add(
                             Criteria.where(fieldName)
                                     .greaterThanOrEquals(range.getFrom())
                     );
-                } else if (range.getTo() != null) {
+                }
+                // Add LESS-THAN-OR-EQUAL criteria if only the upper bound is present
+                else if (range.getTo() != null) {
                     criteriaList.add(
                             Criteria.where(fieldName)
                                     .lessThanOrEquals(range.getTo())
@@ -287,35 +175,26 @@ public class FilterUtils {
             return criteriaList;
         }
 
-        /**
-         * Checks if a field is any type of ID field (whether excludable or filterable).
-         * This is used to determine the type of matching to use and whether to allow range filtering.
-         */
+        // Checks if a field is an ID field (by annotation, convention, or name)
         private boolean isAnyIdField(Field field) {
-            return field.isAnnotationPresent(Id.class) ||
-                    field.getName().endsWith("Id") ||
-                    "id".equals(field.getName());
+            return field.isAnnotationPresent(Id.class) || // Annotation-based ID
+                    field.getName().endsWith("Id") || // Named convention (ends with "Id")
+                    "id".equals(field.getName()); // Explicit name "id"
         }
 
-        /**
-         * Checks if a field is any type of ID field by name.
-         * Used when processing range filters where we only have the field name.
-         */
+        // Checks if a String field name corresponds to an ID field in the entity class
         private boolean isAnyIdField(String fieldName, Class<?> entityClass) {
             try {
-                Field field = entityClass.getDeclaredField(fieldName);
-                return isAnyIdField(field);
+                Field field = entityClass.getDeclaredField(fieldName); // Look up the field by name
+                return isAnyIdField(field); // Check if it is an ID field
             } catch (NoSuchFieldException e) {
-                return false;
+                return false; // Return false if field does not exist
             }
         }
 
-        /**
-         * Checks if a field is an ID field that should be excluded from filtering.
-         * A field is excludable if it's an ID field but doesn't have @FilterableId annotation.
-         */
+        // Checks if an ID field is excluded from filtering
         private boolean isExcludableIdField(Field field) {
-            return isAnyIdField(field) && !field.isAnnotationPresent(FilterableId.class);
+            return isAnyIdField(field) && !field.isAnnotationPresent(FilterableId.class); // Allow only if annotated as filterable
         }
     }
 }

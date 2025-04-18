@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-publish:
-    uses: catalis-vc/cicd/.github/workflows/build-maven.yaml@main
+    uses: firefly-oss/cicd/.github/workflows/build-maven.yaml@main
     with:
       java-version: "21"
       skip-tests: false

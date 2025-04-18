@@ -3,6 +3,7 @@ package com.catalis.common.core.filters;
 import com.catalis.common.core.queries.PaginationRequest;
 import com.catalis.common.core.queries.PaginationResponse;
 import com.catalis.common.core.queries.PaginationUtils;
+import com.catalis.core.utils.annotations.FilterableId;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.domain.Pageable;

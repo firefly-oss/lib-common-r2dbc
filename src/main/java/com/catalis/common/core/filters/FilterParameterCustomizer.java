@@ -1,5 +1,6 @@
 package com.catalis.common.core.filters;
 
+import com.catalis.core.utils.annotations.FilterableId;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.media.BooleanSchema;

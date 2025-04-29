@@ -42,7 +42,7 @@ Simplified transaction management for R2DBC operations.
 
 ### OpenAPI Documentation
 
-Automatic generation of OpenAPI documentation for filter and pagination models.
+Automatic generation of OpenAPI documentation for filter and pagination models. The library includes a `FilterParameterCustomizer` that enhances Swagger/OpenAPI documentation with detailed query parameters for all filtering capabilities.
 
 ## Installation
 
@@ -270,9 +270,11 @@ Mono<PaginationResponse<UserDto>> result = PaginationUtils.paginateQuery(
 );
 ```
 
-## API Documentation
+## OpenAPI Documentation
 
-The library includes Swagger annotations for all filter and pagination models. When used in a Spring Boot application with SpringDoc OpenAPI, the models will be automatically documented.
+The library includes comprehensive Swagger/OpenAPI support for all filter and pagination models. When used in a Spring Boot application with SpringDoc OpenAPI, the models and query parameters will be automatically documented.
+
+### Setup
 
 To enable Swagger UI, add the following dependency to your project:
 
@@ -282,6 +284,38 @@ To enable Swagger UI, add the following dependency to your project:
     <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
     <version>${springdoc.version}</version>
 </dependency>
+```
+
+### Automatic Query Parameter Documentation
+
+The `FilterParameterCustomizer` class automatically enhances your OpenAPI documentation with detailed query parameters for all filtering capabilities:
+
+- **Pagination Parameters**: `pagination.pageNumber`, `pagination.pageSize`, `pagination.sortBy`, `pagination.sortDirection`
+- **Filter Parameters**: `filters.<fieldName>` for each field in your filter class
+- **Range Filter Parameters**: `rangeFilters.ranges[<fieldName>].from` and `rangeFilters.ranges[<fieldName>].to` for numeric and date fields
+- **Filter Options**: `options.caseInsensitiveStrings`, `options.includeInheritedFields`
+
+### Example
+
+When you annotate your controller method with `@ParameterObject` or `@ModelAttribute`:
+
+```java
+@GetMapping("/filter")
+public Mono<PaginationResponse<UserDto>> filterUsers(
+        @ParameterObject FilterRequest<UserFilter> request) {
+    // Implementation
+}
+```
+
+The OpenAPI documentation will automatically include all the filter parameters:
+
+```
+GET /api/users/filter?
+    pagination.pageNumber=0&
+    pagination.pageSize=10&
+    filters.name=John&
+    rangeFilters.ranges[createdDate].from=2023-01-01T00:00:00&
+    options.caseInsensitiveStrings=true
 ```
 
 ## Troubleshooting

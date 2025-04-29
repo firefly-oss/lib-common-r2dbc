@@ -20,6 +20,7 @@ import java.lang.reflect.ParameterizedType;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -34,6 +35,8 @@ import java.util.stream.Collectors;
  *   <li>{@code pagination.pageNumber}, {@code pagination.pageSize}, {@code pagination.sortBy}, {@code pagination.sortDirection}</li>
  *   <li>{@code filters.<fieldName>} for exact filtering</li>
  *   <li>{@code rangeFilters.ranges[<fieldName>].from/to} for range filtering of numeric/date fields</li>
+ *   <li>{@code options.caseInsensitiveStrings=true} for case-insensitive string filtering</li>
+ *   <li>{@code options.includeInheritedFields=true} to include fields from parent classes</li>
  * </ul>
  *
  * <p><strong>ID-like fields</strong> (e.g., ending with {@code "Id"} or exactly named {@code "id"})
@@ -46,9 +49,18 @@ import java.util.stream.Collectors;
  *     pagination.pageNumber=0&
  *     pagination.pageSize=10&
  *     filters.status=ACTIVE&
+ *     filters.tags=tag1,tag2&
  *     rangeFilters.ranges[balance].from=1000&
- *     rangeFilters.ranges[balance].to=5000
+ *     rangeFilters.ranges[balance].to=5000&
+ *     options.caseInsensitiveStrings=true
  * }</pre>
+ *
+ * <p>Special filtering capabilities:</p>
+ * <ul>
+ *   <li><strong>NULL/NOT NULL filtering</strong>: Use {@code FilterRequest.setNullFilter(filter, "fieldName")} or
+ *       {@code FilterRequest.setNotNullFilter(filter, "fieldName")} in your code</li>
+ *   <li><strong>Collection/Array filtering</strong>: Fields of type Collection or array will be filtered using the IN operator</li>
+ * </ul>
  */
 @Component
 public class FilterParameterCustomizer implements OperationCustomizer {
@@ -131,9 +143,18 @@ public class FilterParameterCustomizer implements OperationCustomizer {
         parameters.add(createParameter("pagination.sortDirection", stringSchema(),
                 "Sort direction (ASC or DESC)", "DESC"));
 
+        // --- Filter Options ---
+        parameters.add(createParameter("options.caseInsensitiveStrings", new BooleanSchema(),
+                "Enable case-insensitive string filtering", "false"));
+        parameters.add(createParameter("options.includeInheritedFields", new BooleanSchema(),
+                "Include fields from parent classes", "false"));
+
         // --- Filters (exact) and Range Filters ---
-        Field[] fields = dtoClass.getDeclaredFields();
-        for (Field field : fields) {
+        // Get fields from the class and its superclasses if needed
+        List<Field> allFields = new ArrayList<>();
+        getAllFields(dtoClass, allFields);
+
+        for (Field field : allFields) {
             if (!shouldIncludeField(field)) {
                 continue;
             }
@@ -319,14 +340,36 @@ public class FilterParameterCustomizer implements OperationCustomizer {
     }
 
     /**
+     * Recursively gets all fields from a class and its superclasses.
+     *
+     * @param clazz     The class to get fields from
+     * @param allFields The list to add fields to
+     */
+    private void getAllFields(Class<?> clazz, List<Field> allFields) {
+        if (clazz == null || clazz == Object.class) {
+            return;
+        }
+
+        // Add declared fields
+        allFields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+
+        // Recursively add fields from superclass
+        getAllFields(clazz.getSuperclass(), allFields);
+    }
+
+    /**
      * Chooses an appropriate OpenAPI schema based on the Java type.
      *
      * <ul>
      *   <li>Enums: A StringSchema with enum values</li>
      *   <li>String, Integer, Long, Double, Float, Boolean</li>
      *   <li>LocalDateTime and java.util.Date: StringSchema with "date-time" format</li>
+     *   <li>Collection/Array: StringSchema with description for comma-separated values</li>
      *   <li>Default for unrecognized types: StringSchema</li>
      * </ul>
+     *
+     * @param type The Java type to create a schema for
+     * @return An appropriate OpenAPI schema
      */
     private io.swagger.v3.oas.models.media.Schema<?> createSchemaForType(Class<?> type) {
         if (type.isEnum()) {
@@ -349,6 +392,9 @@ public class FilterParameterCustomizer implements OperationCustomizer {
             return stringSchema().format("date-time");
         } else if (java.util.Date.class.isAssignableFrom(type)) {
             return stringSchema().format("date-time");
+        } else if (Collection.class.isAssignableFrom(type) || type.isArray()) {
+            // For collections and arrays, we use a string schema with comma-separated values
+            return stringSchema().description("Comma-separated values for collection/array filtering");
         } else {
             // Default: String
             return stringSchema();

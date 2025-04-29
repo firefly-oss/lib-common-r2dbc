@@ -1,0 +1,3 @@
+com.catalis.common.core.config.SwaggerConfig
+com.catalis.common.core.config.R2dbcConfig
+com.catalis.common.core.config.R2dbcTransactionConfig

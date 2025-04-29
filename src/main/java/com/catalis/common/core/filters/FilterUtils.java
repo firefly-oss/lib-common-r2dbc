@@ -4,6 +4,10 @@ import com.catalis.common.core.queries.PaginationRequest;
 import com.catalis.common.core.queries.PaginationResponse;
 import com.catalis.common.core.queries.PaginationUtils;
 import com.catalis.core.utils.annotations.FilterableId;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.domain.Pageable;
@@ -15,12 +19,46 @@ import reactor.core.publisher.Mono;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 @Slf4j
 public class FilterUtils {
     private static R2dbcEntityTemplate entityTemplate;
+
+    // Cache for field reflection to improve performance
+    private static final ConcurrentHashMap<Class<?>, List<Field>> FIELDS_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * Configuration options for filtering behavior
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FilterOptions {
+        /**
+         * Whether string comparisons should be case-insensitive
+         */
+        @Builder.Default
+        private boolean caseInsensitiveStrings = false;
+
+        /**
+         * Whether to include inherited fields in filtering
+         */
+        @Builder.Default
+        private boolean includeInheritedFields = false;
+
+        /**
+         * Default filter options with default values
+         */
+        public static FilterOptions defaults() {
+            return FilterOptions.builder().build();
+        }
+    }
 
     // Initializes the static R2dbcEntityTemplate instance
     public static void initializeTemplate(R2dbcEntityTemplate template) {
@@ -33,18 +71,29 @@ public class FilterUtils {
         if (entityTemplate == null) {
             throw new IllegalStateException("R2dbcEntityTemplate not initialized. Call FilterUtils.initializeTemplate first.");
         }
-        return new GenericFilter<>(entityClass, mapper);
+        return new GenericFilter<>(entityClass, mapper, FilterOptions.defaults());
+    }
+
+    // Creates a new GenericFilter object with custom filter options
+    public static <F, E, D> GenericFilter<F, E, D> createFilter(Class<E> entityClass, Function<E, D> mapper, FilterOptions options) {
+        // Ensures the R2dbcEntityTemplate has been initialized before use
+        if (entityTemplate == null) {
+            throw new IllegalStateException("R2dbcEntityTemplate not initialized. Call FilterUtils.initializeTemplate first.");
+        }
+        return new GenericFilter<>(entityClass, mapper, options);
     }
 
     // Generic filter class for handling filtering for a specified entity type
     public static class GenericFilter<F, E, D> {
         private final Class<E> entityClass; // The entity class type
         private final Function<E, D> mapper; // Mapper to transform entity to another type
+        private final FilterOptions options; // Options for filtering behavior
 
-        // Constructs the filter with entity class and mapper function
-        private GenericFilter(Class<E> entityClass, Function<E, D> mapper) {
+        // Constructs the filter with entity class, mapper function, and options
+        private GenericFilter(Class<E> entityClass, Function<E, D> mapper, FilterOptions options) {
             this.entityClass = entityClass;
             this.mapper = mapper;
+            this.options = options;
         }
 
         // Main filtering method to handle filter requests
@@ -64,6 +113,14 @@ public class FilterUtils {
                     pageable -> fetchPagedData(criteria, pageable), // Fetch data for the current page
                     () -> countTotalElements(criteria) // Count the total number of elements
             );
+        }
+
+        /**
+         * Returns the raw criteria without executing the query.
+         * This is useful for custom query building.
+         */
+        public Criteria getCriteria(FilterRequest<?> filterRequest) {
+            return buildCriteria(filterRequest);
         }
 
         // Fetches paged data based on provided criteria and pagination details
@@ -106,12 +163,31 @@ public class FilterUtils {
         // Processes regular filters into a list of Criteria objects
         private List<Criteria> processRegularFilters(Object filters) {
             List<Criteria> criteriaList = new ArrayList<>();
-            Field[] fields = filters.getClass().getDeclaredFields(); // Get all declared fields of the filter class
+
+            // Get all fields (including inherited if option is enabled)
+            List<Field> fields = getAllFields(filters.getClass());
 
             for (Field field : fields) {
                 field.setAccessible(true); // Make field accessible for reflection
                 try {
                     Object value = field.get(filters); // Get the value of the field
+                    String fieldName = field.getName();
+
+                    // Check for special filter values (NULL, NOT_NULL)
+                    Object specialFilter = FilterRequest.getSpecialFilter(filters, fieldName);
+
+                    // Handle null values - if field is marked with NULL_VALUE
+                    if (specialFilter == FilterRequest.NULL_VALUE) {
+                        criteriaList.add(Criteria.where(fieldName).isNull());
+                        continue;
+                    }
+
+                    // Handle not-null values - if field is marked with NOT_NULL_VALUE
+                    if (specialFilter == FilterRequest.NOT_NULL_VALUE) {
+                        criteriaList.add(Criteria.where(fieldName).isNotNull());
+                        continue;
+                    }
+
                     if (value != null) { // Process only non-null values
                         // Skip excluded ID fields
                         if (isExcludableIdField(field)) {
@@ -122,9 +198,30 @@ public class FilterUtils {
                         if (isAnyIdField(field)) {
                             criteriaList.add(Criteria.where(field.getName()).is(value));
                         }
+                        // Handle Collection/Array fields
+                        else if (value instanceof Collection) {
+                            Collection<?> collection = (Collection<?>) value;
+                            if (!collection.isEmpty()) {
+                                criteriaList.add(Criteria.where(field.getName()).in(collection));
+                            }
+                        }
+                        // Handle array fields
+                        else if (value.getClass().isArray()) {
+                            Object[] array = (Object[]) value;
+                            if (array.length > 0) {
+                                criteriaList.add(Criteria.where(field.getName()).in(array));
+                            }
+                        }
                         // Perform LIKE query for non-empty String fields
                         else if (value instanceof String && !((String) value).isEmpty()) {
-                            criteriaList.add(Criteria.where(field.getName()).like("%" + value + "%"));
+                            String stringValue = (String) value;
+                            if (options.isCaseInsensitiveStrings()) {
+                                // Case-insensitive LIKE query
+                                criteriaList.add(Criteria.where(field.getName()).like("%" + stringValue.toLowerCase() + "%"));
+                            } else {
+                                // Case-sensitive LIKE query (default behavior)
+                                criteriaList.add(Criteria.where(field.getName()).like("%" + stringValue + "%"));
+                            }
                         }
                         // Exact match for other types of fields
                         else if (!(value instanceof String)) {
@@ -133,10 +230,37 @@ public class FilterUtils {
                     }
                 } catch (IllegalAccessException e) {
                     log.error("Error accessing field: {}", field.getName(), e); // Log error for inaccessible fields
+                } catch (Exception e) {
+                    log.error("Unexpected error processing filter field {}: {}", field.getName(), e.getMessage(), e);
                 }
             }
 
             return criteriaList;
+        }
+
+        /**
+         * Gets all fields for a class, using cache for performance.
+         * If includeInheritedFields option is enabled, includes fields from superclasses.
+         */
+        private List<Field> getAllFields(Class<?> clazz) {
+            // Check cache first
+            return FIELDS_CACHE.computeIfAbsent(clazz, cls -> {
+                List<Field> allFields = new ArrayList<>();
+
+                // Add declared fields
+                allFields.addAll(Arrays.asList(cls.getDeclaredFields()));
+
+                // Add inherited fields if option is enabled
+                if (options.isIncludeInheritedFields()) {
+                    Class<?> superClass = cls.getSuperclass();
+                    while (superClass != null && superClass != Object.class) {
+                        allFields.addAll(Arrays.asList(superClass.getDeclaredFields()));
+                        superClass = superClass.getSuperclass();
+                    }
+                }
+
+                return allFields;
+            });
         }
 
         // Processes range filters into a list of Criteria objects

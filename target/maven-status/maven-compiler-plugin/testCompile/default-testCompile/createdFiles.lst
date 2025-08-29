@@ -1,7 +1,10 @@
-com/catalis/common/core/filters/TestEntityFilter$TestEntityFilterBuilder.class
-com/catalis/common/core/filters/TestEntity$NestedObject.class
-com/catalis/common/core/filters/TestEntity.class
-com/catalis/common/core/filters/FilterUtilsTest.class
-com/catalis/common/core/filters/TestEntity$TestEntityBuilder.class
-com/catalis/common/core/filters/TestEntityFilter.class
-com/catalis/common/core/filters/TestEntity$NestedObject$NestedObjectBuilder.class
+com/firefly/common/core/filters/TestEntity$NestedObject$NestedObjectBuilder.class
+com/firefly/common/core/filters/TestEntity$NestedObject.class
+com/firefly/common/core/filters/TestEntity$TestEntityBuilder.class
+com/firefly/common/core/filters/TestEntityFilter$TestEntityFilterBuilder.class
+com/firefly/common/core/filters/TestEntity.class
+com/firefly/common/core/filters/FilterParameterCustomizerTest.class
+com/firefly/common/core/filters/FilterParameterCustomizerTest$TestController.class
+com/firefly/common/core/filters/FilterParameterCustomizerTest$TestFilter.class
+com/firefly/common/core/filters/TestEntityFilter.class
+com/firefly/common/core/filters/FilterUtilsTest.class

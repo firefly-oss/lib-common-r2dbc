@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +31,12 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 public class FilterUtilsTest {
+
+    // Fixed UUID values for predictable test outcomes
+    private static final UUID TEST_ENTITY_ID_1 = UUID.fromString("550e8400-e29b-41d4-a716-446655440001");
+    private static final UUID TEST_ENTITY_ID_2 = UUID.fromString("550e8400-e29b-41d4-a716-446655440002");
+    private static final UUID TEST_FILTERABLE_ID_1 = UUID.fromString("550e8400-e29b-41d4-a716-446655440011");
+    private static final UUID TEST_FILTERABLE_ID_2 = UUID.fromString("550e8400-e29b-41d4-a716-446655440012");
 
     @Mock
     private R2dbcEntityTemplate entityTemplate;
@@ -64,7 +71,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "name", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).name("test name").build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).name("test name").build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -99,7 +106,7 @@ public class FilterUtilsTest {
                 .options(FilterUtils.FilterOptions.builder().caseInsensitiveStrings(true).build())
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).name("test name").build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).name("test name").build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -133,7 +140,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "count", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).count(10).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).count(10).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -167,7 +174,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "active", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).active(true).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).active(true).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -195,14 +202,14 @@ public class FilterUtilsTest {
     void testIdFieldFiltering() {
         // Given
         TestEntityFilter testFilter = new TestEntityFilter();
-        testFilter.setFilterableId(1L);
+        testFilter.setFilterableId(TEST_FILTERABLE_ID_1);
 
         FilterRequest<TestEntityFilter> request = FilterRequest.<TestEntityFilter>builder()
                 .filters(testFilter)
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(2L).filterableId(1L).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_2).filterableId(TEST_FILTERABLE_ID_1).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -213,7 +220,7 @@ public class FilterUtilsTest {
         StepVerifier.create(result)
                 .assertNext(response -> {
                     assertThat(response.getContent()).hasSize(1);
-                    assertThat(response.getContent().get(0).getFilterableId()).isEqualTo(1L);
+                    assertThat(response.getContent().get(0).getFilterableId()).isEqualTo(TEST_FILTERABLE_ID_1);
                     assertThat(response.getTotalElements()).isEqualTo(1);
                 })
                 .verifyComplete();
@@ -223,7 +230,7 @@ public class FilterUtilsTest {
 
         Criteria criteria = (Criteria) queryCaptor.getValue().getCriteria().orElse(Criteria.empty());
         assertThat(criteria.toString().toLowerCase()).contains("filterableid");
-        assertThat(criteria.toString().toLowerCase()).contains("1");
+        assertThat(criteria.toString().toLowerCase()).contains(TEST_FILTERABLE_ID_1.toString().toLowerCase());
     }
 
     @Test
@@ -241,7 +248,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).count(10).createdDate(from.plusDays(1)).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).count(10).createdDate(from.plusDays(1)).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -276,7 +283,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).tags(Arrays.asList("tag1", "tag2", "tag3")).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).tags(Arrays.asList("tag1", "tag2", "tag3")).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -310,7 +317,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).stringArray(new String[]{"value1", "value2", "value3"}).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).stringArray(new String[]{"value1", "value2", "value3"}).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -345,7 +352,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).name(null).build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).name(null).build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 
@@ -380,7 +387,7 @@ public class FilterUtilsTest {
                 .pagination(new PaginationRequest(0, 10, "id", "ASC"))
                 .build();
 
-        TestEntity entity = TestEntity.builder().id(1L).name("test").build();
+        TestEntity entity = TestEntity.builder().id(TEST_ENTITY_ID_1).name("test").build();
         when(terminatingSelect.all()).thenReturn(Flux.just(entity));
         when(terminatingSelect.count()).thenReturn(Mono.just(1L));
 

@@ -10,6 +10,7 @@ import org.springframework.data.annotation.Id;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Test entity with various field types for testing filtering capabilities.
@@ -20,10 +21,10 @@ import java.util.Set;
 @AllArgsConstructor
 public class TestEntity {
     @Id
-    private Long id;
+    private UUID id;
     
     @FilterableId
-    private Long filterableId;
+    private UUID filterableId;
     
     private String name;
     

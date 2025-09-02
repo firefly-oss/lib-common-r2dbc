@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Filter class for TestEntity.
@@ -18,10 +19,10 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TestEntityFilter {
-    private Long id;
+    private UUID id;
 
     @FilterableId
-    private Long filterableId;
+    private UUID filterableId;
 
     private String name;
 

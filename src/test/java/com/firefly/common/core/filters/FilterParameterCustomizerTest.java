@@ -22,6 +22,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import java.util.UUID;
 
 /**
  * Tests for {@link FilterParameterCustomizer} to ensure it correctly enhances
@@ -167,10 +168,10 @@ class FilterParameterCustomizerTest {
      * Test filter class with various field types.
      */
     static class TestFilter {
-        private Long id;
+        private UUID id;
 
         @FilterableId
-        private Long filterableId;
+        private UUID filterableId;
 
         private String name;
 
